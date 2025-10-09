@@ -1,0 +1,9 @@
+---
+- name: List all VMware VMs
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Include vmware_snapshot list tasks
+      include_role:
+        name: vmware_snapshot
+        tasks_from: list.yml

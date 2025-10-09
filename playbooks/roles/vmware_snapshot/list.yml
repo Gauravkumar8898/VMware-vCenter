@@ -1,0 +1,13 @@
+- name: Get list of all VMs in vCenter
+  community.vmware.vmware_vm_info:
+    hostname: "{{ lookup('env', 'VCENTER_HOSTNAME') }}"
+    username: "{{ lookup('env', 'VCENTER_USERNAME') }}"
+    password: "{{ lookup('env', 'VCENTER_PASSWORD') }}"
+    validate_certs: no
+  delegate_to: localhost
+  register: vm_list
+
+- name: Show VM names
+  debug:
+    msg: "{{ item.guest_name }}"
+  loop: "{{ vm_list.virtual_machines }}"
