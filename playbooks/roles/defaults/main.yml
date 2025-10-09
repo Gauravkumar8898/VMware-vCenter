@@ -1,0 +1,6 @@
+# playbooks/roles/vmware_snapshot/defaults/main.yml
+---
+vcenter_hostname: "{{ vcenter_hostname }}"
+vcenter_username: "{{ vcenter_username }}"
+vcenter_password: "{{ vcenter_password }}"
+snapshot_action: list
