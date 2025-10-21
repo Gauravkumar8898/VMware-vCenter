@@ -3,6 +3,13 @@
   hosts: localhost
   gather_facts: no
   tasks:
+    - name: Show vCenter connection details
+      debug:
+        msg:
+          - "vCenter Hostname: {{ lookup('env', 'VCENTER_HOSTNAME') }}"
+          - "vCenter Username: {{ lookup('env', 'VCENTER_USERNAME') }}"
+          - "vCenter Password: {{ lookup('env', 'VCENTER_PASSWORD') }}"
+
     - name: Get list of all VMs in vCenter
       community.vmware.vmware_vm_info:
         hostname: "{{ lookup('env', 'VCENTER_HOSTNAME') }}"
@@ -12,7 +19,6 @@
       delegate_to: localhost
       register: vm_list
 
-    - name: Show VM names
+    - name: Show retrieved VM list summary
       debug:
-        msg: "{{ item.guest_name }}"
-      loop: "{{ vm_list.virtual_machines }}"
+        msg: "Total VMs found: {{ vm_list.virtual_machines | length }}"
