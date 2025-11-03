@@ -1,22 +1,72 @@
+#---
+#- name: List all VMware VMs (standalone test)
+#  hosts: localhost
+#  gather_facts: no
+#  tasks:
+#    - name: Get list of all VMs in vCenter
+#      community.vmware.vmware_vm_info:
+#        hostname: "{{ lookup('env', 'VCENTER_HOSTNAME') }}"
+#        username: "{{ lookup('env', 'VCENTER_USERNAME') }}"
+#        password: "{{ lookup('env', 'VCENTER_PASSWORD') }}"
+#        validate_certs: false
+#      environment:
+#        VMWARE_PROXY_HOST: 172.29.45.247
+#        VMWARE_PROXY_PORT: 8080
+#        VMWARE_PROXY_PROTOCOL: https
+#      delegate_to: localhost
+#      register: vm_list
+#
+#    - name: Show retrieved VM list summary
+#      debug:
+#        msg: "Total VMs found: {{ vm_list.virtual_machines | length }}"
+
 ---
-- name: List all VMware VMs (standalone test)
+- name: List all VMware VMs through proxy
   hosts: localhost
   gather_facts: no
+  vars:
+    vcenter_host: "{{ vcenter_hostname | default(lookup('env', 'VCENTER_HOSTNAME')) }}"
+    vcenter_user: "{{ vcenter_username | default(lookup('env', 'VCENTER_USERNAME')) }}"
+    vcenter_pass: "{{ vcenter_password | default(lookup('env', 'VCENTER_PASSWORD')) }}"
+
+  environment:
+    # Proxy settings
+    VMWARE_PROXY_HOST: "172.29.45.247"
+    VMWARE_PROXY_PORT: "8080"
+    VMWARE_PROXY_PROTOCOL: "http"
+    # Optional: For Python requests
+    HTTPS_PROXY: "http://172.29.45.247:8080"
+    HTTP_PROXY: "http://172.29.45.247:8080"
+
   tasks:
+    - name: Test proxy connectivity
+      uri:
+        url: "https://{{ vcenter_host }}/sdk"
+        method: GET
+        proxy_url: "http://172.29.45.247:8080"
+        validate_certs: false
+        timeout: 30
+      ignore_errors: yes
+      register: proxy_test
+
+    - name: Debug proxy test
+      debug:
+        var: proxy_test
+
     - name: Get list of all VMs in vCenter
       community.vmware.vmware_vm_info:
-        hostname: "{{ lookup('env', 'VCENTER_HOSTNAME') }}"
-        username: "{{ lookup('env', 'VCENTER_USERNAME') }}"
-        password: "{{ lookup('env', 'VCENTER_PASSWORD') }}"
+        hostname: "{{ vcenter_host }}"
+        username: "{{ vcenter_user }}"
+        password: "{{ vcenter_pass }}"
         validate_certs: false
-      environment:
-        VMWARE_PROXY_HOST: 172.29.45.247
-        VMWARE_PROXY_PORT: 8080
-        VMWARE_PROXY_PROTOCOL: https
-      delegate_to: localhost
       register: vm_list
 
-    - name: Show retrieved VM list summary
+    - name: Show VM list summary
       debug:
         msg: "Total VMs found: {{ vm_list.virtual_machines | length }}"
 
+    - name: Display VM names
+      debug:
+        msg: "{{ item.guest_name }}"
+      loop: "{{ vm_list.virtual_machines }}"
+      when: vm_list.virtual_machines is defined
