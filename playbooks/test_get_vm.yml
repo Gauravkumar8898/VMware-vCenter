@@ -3,22 +3,17 @@
   hosts: localhost
   gather_facts: no
   tasks:
-    - name: Show vCenter connection details
-      debug:
-        msg:
-          - "vCenter Hostname: {{ lookup('env', 'VCENTER_HOSTNAME') }}"
-          - "vCenter Username: {{ lookup('env', 'VCENTER_USERNAME') }}"
-          - "vCenter Password: {{ lookup('env', 'VCENTER_PASSWORD') }}"
-
     - name: Get list of all VMs in vCenter
       community.vmware.vmware_vm_info:
-        hostname: "{{ lookup('env', 'VCENTER_HOSTNAME') }}"
-        username: "{{ lookup('env', 'VCENTER_USERNAME') }}"
-        password: "{{ lookup('env', 'VCENTER_PASSWORD') }}"
+        hostname: "MTSLHAVCS01.service.motherson.com"
+        username: "gaurav.kumar11@mind.motherson.com"
+        password: "aug#56#sep@ok"
         validate_certs: no
       delegate_to: localhost
       register: vm_list
 
-    - name: Show retrieved VM list summary
+    - name: Show VM names
       debug:
-        msg: "Total VMs found: {{ vm_list.virtual_machines | length }}"
+        msg: "{{ item.guest_name }}"
+      loop: "{{ vm_list.virtual_machines }}"
+
