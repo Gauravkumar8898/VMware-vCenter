@@ -5,9 +5,6 @@
   tasks:
     - name: Get list of all VMs in vCenter
       community.vmware.vmware_vm_info:
-        hostname: "MTSLHAVCS01.service.motherson.com"
-        username: "gaurav.kumar11@mind.motherson.com"
-        password: "aug#56#sep@ok"
         validate_certs: no
       delegate_to: localhost
       register: vm_list
