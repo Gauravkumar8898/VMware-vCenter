@@ -12,7 +12,7 @@
       environment:
         VMWARE_PROXY_HOST: 172.29.45.247
         VMWARE_PROXY_PORT: 8080
-        VMWARE_PROXY_PROTOCOL: http
+        VMWARE_PROXY_PROTOCOL: https
       delegate_to: localhost
       register: vm_list
 
