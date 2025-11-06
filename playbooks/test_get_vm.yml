@@ -19,8 +19,9 @@
 
     - name: Show names of all VMs
       debug:
-        msg: "{{ item.name }}"
-      loop: "{{ vm_list.virtual_machines }}"
+        msg: "{{ item.value.name }}"
+      loop: "{{ vm_list.virtual_machines | dict2items }}"
+
 
 
 #---
