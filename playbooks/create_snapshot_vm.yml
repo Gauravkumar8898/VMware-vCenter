@@ -1,0 +1,31 @@
+---
+- name: Create VMware snapshots for AWX inventory hosts
+  hosts: all
+  gather_facts: no
+
+  vars:
+    snapshot_name: "Snapshot for patching"
+    vcenter_hostname: "{{ lookup('env', 'VCENTER_HOSTNAME') }}"
+    vcenter_username: "{{ lookup('env', 'VCENTER_USERNAME') }}"
+    vcenter_password: "{{ lookup('env', 'VCENTER_PASSWORD') }}"
+    datacenter_name: "MTSLHADC"
+
+  tasks:
+    - name: Create snapshot for each inventory host
+      community.vmware.vmware_guest_snapshot:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        datacenter: "{{ datacenter_name }}"
+        folder: /MTSLHADC/vm
+        validate_certs: no
+        name: "{{ inventory_hostname }}"
+        state: present
+        snapshot_name: "{{ snapshot_name }}"
+        description: "Snapshot created by AWX"
+      delegate_to: localhost
+      register: snapshot_results
+
+    - name: Show snapshot results
+      debug:
+        var: snapshot_results
