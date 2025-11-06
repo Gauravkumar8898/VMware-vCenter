@@ -2,6 +2,7 @@
 - name: List all VMware VMs (standalone test)
   hosts: localhost
   gather_facts: no
+
   tasks:
     - name: Get list of all VMs in vCenter
       community.vmware.vmware_vm_info:
@@ -12,9 +13,15 @@
       delegate_to: localhost
       register: vm_list
 
-    - name: Show retrieved VM list summary
+    - name: Show total number of VMs
       debug:
         msg: "Total VMs found: {{ vm_list.virtual_machines | length }}"
+
+    - name: Show names of all VMs
+      debug:
+        msg: "{{ item.name }}"
+      loop: "{{ vm_list.virtual_machines }}"
+
 
 #---
 #- name: List all VMware VMs through proxy
