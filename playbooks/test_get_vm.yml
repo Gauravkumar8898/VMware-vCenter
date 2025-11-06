@@ -13,14 +13,13 @@
       delegate_to: localhost
       register: vm_list
 
-    - name: Show total number of VMs
+    - name: Show VM names
+      debug:
+        msg: "{{ item.guest_name }}"
+      loop: "{{ vm_list.virtual_machines }}"
+    - name: Show VM list summary
       debug:
         msg: "Total VMs found: {{ vm_list.virtual_machines | length }}"
-
-    - name: Show names of all VMs
-      debug:
-        msg: "{{ item.name }}"
-      loop: "{{ vm_list.virtual_machines }}"
 
 
 
