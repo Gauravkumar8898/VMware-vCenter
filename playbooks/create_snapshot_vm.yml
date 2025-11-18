@@ -8,7 +8,7 @@
     vcenter_hostname: "{{ lookup('env', 'VCENTER_HOSTNAME') }}"
     vcenter_username: "{{ lookup('env', 'VCENTER_USERNAME') }}"
     vcenter_password: "{{ lookup('env', 'VCENTER_PASSWORD') }}"
-    datacenter_name: "MTSLHADC"
+    datacenter_name: "vDC-TBD-Site"
 
   tasks:
     - name: Create snapshot for each inventory host
@@ -17,7 +17,7 @@
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
         datacenter: "{{ datacenter_name }}"
-        folder: /MTSLHADC/vm
+        folder: /vDC-TBD-Site/vm
         validate_certs: no
         name: "{{ inventory_hostname }}"
         state: present
