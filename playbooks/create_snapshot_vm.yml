@@ -11,7 +11,27 @@
     datacenter_name: "vDC-TBD-Site"
 
   tasks:
-    - name: Create snapshot for each inventory host
+
+    - name: Get VM info
+      community.vmware.vmware_guest_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: no
+        datacenter: "{{ datacenter_name }}"
+        name: "{{ inventory_hostname }}"
+      delegate_to: localhost
+      register: vm_info
+
+    - name: Calculate total disk size in GB
+      set_fact:
+        total_disk_gb: "{{ (vm_info.virtual_machines[0].disks | sum(attribute='capacity_in_kb')) / 1024 / 1024 }}"
+
+    - name: Debug disk size
+      debug:
+        msg: "VM {{ inventory_hostname }} has {{ total_disk_gb }} GB disk"
+
+    - name: Create snapshot (only if disk <= 500 GB)
       community.vmware.vmware_guest_snapshot:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
@@ -25,6 +45,18 @@
         description: "Snapshot created by AWX"
       delegate_to: localhost
       register: snapshot_results
+      when: total_disk_gb | float <= 500
+
+    - name: Show message for skipped VMs
+      debug:
+        msg: "Skipped snapshot because disk > 500GB for {{ inventory_hostname }}"
+      when: total_disk_gb | float > 500
+
+    - name: Show snapshot results (only if snapshot was created)
+      debug:
+        var: snapshot_results
+      when: total_disk_gb | float <= 500
+
 
     - name: Show snapshot results
       debug:
