@@ -1,0 +1,52 @@
+---
+- name: get VM disk space for AWX inventory hosts
+  hosts: all
+  gather_facts: no
+
+  vars:
+    snapshot_name: "Snapshot for patching"
+    vcenter_hostname: "{{ lookup('env', 'VCENTER_HOSTNAME') }}"
+    vcenter_username: "{{ lookup('env', 'VCENTER_USERNAME') }}"
+    vcenter_password: "{{ lookup('env', 'VCENTER_PASSWORD') }}"
+    datacenter_name: "vDC-TBD-Site"
+
+  tasks:
+
+    # -----------------------------------
+    # GET ONLY DISK INFORMATION
+    # -----------------------------------
+    - name: Get disk info for VM
+      community.vmware.vmware_guest_disk_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: no
+        datacenter: "{{ datacenter_name }}"
+        name: "{{ inventory_hostname }}"
+      delegate_to: localhost
+      register: disk_info
+
+    - name: Show raw disk info (debug)
+      debug:
+        var: disk_info
+
+    # -----------------------------------
+    # CALCULATE DISK SIZE
+    # -----------------------------------
+    - name: Calculate total disk size
+      set_fact:
+        total_disk_gb: >-
+          {{
+            (
+              disk_info.disk_info
+              | map(attribute='capacity_in_kb')
+              | map('float')
+              | sum
+            ) / 1024 / 1024
+          }}
+
+    - name: Show total disk capacity
+      debug:
+        msg: "VM {{ inventory_hostname }} has total disk size {{ total_disk_gb }} GB."
+
+
