@@ -16,12 +16,11 @@
     # GET ONLY DISK INFORMATION
     # -----------------------------------
     - name: Get disk info for VM
-      community.vmware.vmware_guest_disk_info:
+      vmware_guest_disk_info:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
         validate_certs: no
-        datacenter: "{{ datacenter_name }}"
         name: "{{ inventory_hostname }}"
       delegate_to: localhost
       register: disk_info
@@ -30,23 +29,18 @@
       debug:
         var: disk_info
 
-    # -----------------------------------
-    # CALCULATE DISK SIZE
-    # -----------------------------------
-    - name: Calculate total disk size
+    # -------------------------------
+    # FIXED — NO MORE ERRORS
+    # -------------------------------
+    - name: Calculate total disk size in GB
       set_fact:
         total_disk_gb: >-
-          {{
-            (
-              disk_info.disk_info
-              | map(attribute='capacity_in_kb')
-              | map('float')
-              | sum
-            ) / 1024 / 1024
-          }}
+          {{ disk_info.guest_disk_info
+            | dict2items
+            | map(attribute='value.capacity_in_bytes')
+            | sum
+            | float / 1024 / 1024 / 1024 }}
 
-    - name: Show total disk capacity
+    - name: Show total disk size
       debug:
-        msg: "VM {{ inventory_hostname }} has total disk size {{ total_disk_gb }} GB."
-
-
+        msg: "Total Disk Size: {{ total_disk_gb | round(2) }} GB"
