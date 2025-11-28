@@ -1,0 +1,66 @@
+---
+- name: Delete VMware snapshots older than 72 hours
+  hosts: all
+  gather_facts: no
+  connection: local
+
+  vars:
+    # Snapshot Configuration
+    snapshot_name: "Snapshot for patching"
+    max_age_hours: 72
+
+    # vCenter Configuration
+    vcenter_hostname: "{{ lookup('env', 'VCENTER_HOSTNAME') }}"
+    vcenter_username: "{{ lookup('env', 'VCENTER_USERNAME') }}"
+    vcenter_password: "{{ lookup('env', 'VCENTER_PASSWORD') }}"
+    datacenter_name: "vDC-TBD-Site"
+
+  tasks:
+    # -------------------------------------------------------
+    # 1. Get Snapshot Information
+    # -------------------------------------------------------
+    - name: Gather snapshot facts for the VM
+      community.vmware.vmware_guest_snapshot_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        datacenter: "{{ datacenter_name }}"
+        name: "{{ inventory_hostname }}"
+        validate_certs: no
+      delegate_to: localhost
+      register: snapshot_facts
+
+    # -------------------------------------------------------
+    # 2. Analyze and Delete Old Snapshots
+    # -------------------------------------------------------
+    - name: Delete snapshot if it exists and is older than {{ max_age_hours }} hours
+      community.vmware.vmware_guest_snapshot:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        datacenter: "{{ datacenter_name }}"
+        folder: "/{{ datacenter_name }}/vm"
+        validate_certs: no
+        name: "{{ inventory_hostname }}"
+        state: absent
+        snapshot_name: "{{ item.name }}"
+      delegate_to: localhost
+      # Loop through all snapshots found on the VM
+      loop: "{{ snapshot_facts.guest_snapshots | default([]) }}"
+      when:
+        # 1. Check if the snapshot name matches our target
+        - item.name == snapshot_name
+        # 2. Check if the snapshot is older than 72 hours
+        #    We parse the creation_time (ISO8601) and compare it to now(utc=True)
+        #    72 hours * 3600 seconds/hour = 259200 seconds
+        - >-
+          ((now(utc=True) - (item.creation_time | to_datetime('%Y-%m-%dT%H:%M:%S.%fZ'))).total_seconds()) > (max_age_hours * 3600)
+      loop_control:
+        label: "{{ item.name }} (Created: {{ item.creation_time }})"
+      register: delete_result
+
+    - name: Show deletion results
+      ansible.builtin.debug:
+        msg: "Snapshot '{{ item.item.name }}' deleted: {{ item.changed }}"
+      loop: "{{ delete_result.results }}"
+      when: item.skipped is not defined or not item.skipped
