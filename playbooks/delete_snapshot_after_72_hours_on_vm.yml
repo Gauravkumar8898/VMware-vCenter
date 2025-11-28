@@ -13,7 +13,11 @@
     vcenter_hostname: "{{ lookup('env', 'VCENTER_HOSTNAME') }}"
     vcenter_username: "{{ lookup('env', 'VCENTER_USERNAME') }}"
     vcenter_password: "{{ lookup('env', 'VCENTER_PASSWORD') }}"
+
+    # Path Configuration
     datacenter_name: "vDC-TBD-Site"
+    # The 'folder' parameter is mandatory for finding VMs by name in these modules
+    vm_folder: "/{{ datacenter_name }}/vm"
 
   tasks:
     # -------------------------------------------------------
@@ -25,6 +29,7 @@
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
         datacenter: "{{ datacenter_name }}"
+        folder: "{{ vm_folder }}"   # <--- FIX: Added mandatory folder parameter
         name: "{{ inventory_hostname }}"
         validate_certs: no
       delegate_to: localhost
@@ -39,7 +44,7 @@
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
         datacenter: "{{ datacenter_name }}"
-        folder: "/{{ datacenter_name }}/vm"
+        folder: "{{ vm_folder }}"
         validate_certs: no
         name: "{{ inventory_hostname }}"
         state: absent
