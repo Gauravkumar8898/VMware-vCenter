@@ -8,7 +8,8 @@
     vcenter_hostname: "{{ lookup('env', 'VCENTER_HOSTNAME') }}"
     vcenter_username: "{{ lookup('env', 'VCENTER_USERNAME') }}"
     vcenter_password: "{{ lookup('env', 'VCENTER_PASSWORD') }}"
-    datacenter_name: "vDC-TBD-Site"
+    datacenter_name: "{{ lookup('env', 'VCENTER_DATACENTER') }}"
+    vm_folder: "{{ lookup('env', 'VCENTER_VM_FOLDER') }}"
 
   tasks:
     - name: Delete snapshot for each inventory host
@@ -17,7 +18,7 @@
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
         datacenter: "{{ datacenter_name }}"
-        folder: /vDC-TBD-Site/vm
+        folder: "{{ vm_folder }}"
         validate_certs: no
         name: "{{ inventory_hostname }}"
         state: absent
