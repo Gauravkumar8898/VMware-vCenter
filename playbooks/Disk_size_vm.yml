@@ -1,46 +1,121 @@
 ---
-- name: get VM disk space for AWX inventory hosts
+- name: Get VM Storage and Datastore Information
   hosts: all
   gather_facts: no
+  connection: local
 
   vars:
-    snapshot_name: "Snapshot for patching"
     vcenter_hostname: "{{ lookup('env', 'VCENTER_HOSTNAME') }}"
     vcenter_username: "{{ lookup('env', 'VCENTER_USERNAME') }}"
     vcenter_password: "{{ lookup('env', 'VCENTER_PASSWORD') }}"
     datacenter_name: "vDC-TBD-Site"
 
   tasks:
-
-    # -----------------------------------
-    # GET ONLY DISK INFORMATION
-    # -----------------------------------
-    - name: Get disk info for VM
-      vmware_guest_disk_info:
+    # -------------------------------------------------------
+    # 1. Get VM High-Level Info (Includes Storage Summary)
+    # -------------------------------------------------------
+    - name: Get VM facts (including storage summary and datastore names)
+      vmware_guest_info:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
         validate_certs: no
+        datacenter: "{{ datacenter_name }}"
         name: "{{ inventory_hostname }}"
+        schema: "vsphere" # Ensures we get detailed property structures
+        properties:
+          - summary.storage
+          - datastore
       delegate_to: localhost
-      register: disk_info
+      register: vm_facts
 
-    - name: Show raw disk info (debug)
+    # -------------------------------------------------------
+    # 2. Get Datastore Specifics (Capacity/Free Space)
+    # -------------------------------------------------------
+    # A VM might be on multiple datastores, so we loop through the list found in step 1
+    - name: Get info for the Datastore(s) backing this VM
+      vmware_datastore_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: no
+        datacenter: "{{ datacenter_name }}"
+        name: "{{ item.name }}"
+      delegate_to: localhost
+      loop: "{{ vm_facts.instance.datastore }}"
+      register: datastore_facts
+      when: vm_facts.instance.datastore is defined
+
+    # -------------------------------------------------------
+    # 3. Calculate and Display Results
+    # -------------------------------------------------------
+    - name: Display Storage Metrics
       debug:
-        var: disk_info
+        msg:
+          - "---------------------------------------------"
+          - "VM Name: {{ inventory_hostname }}"
+          - "---------------------------------------------"
+          # summary.storage.committed is the total space the VM is taking up on disk
+          - "VM Total Storage Used (Bytes): {{ vm_facts.instance.summary.storage.committed }}"
+          - "VM Total Storage Used (GB): {{ (vm_facts.instance.summary.storage.committed | float / 1024 / 1024 / 1024) | round(2) }} GB"
+          - "---------------------------------------------"
+          - "Datastore Details:"
 
-    # -------------------------------
-    # FIXED — NO MORE ERRORS
-    # -------------------------------
-    - name: Calculate total disk size in GB
-      set_fact:
-        total_disk_gb: >-
-          {{ disk_info.guest_disk_info
-            | dict2items
-            | map(attribute='value.capacity_in_bytes')
-            | sum
-            | float / 1024 / 1024 / 1024 }}
-
-    - name: Show total disk size
+    - name: Print Details per Datastore
       debug:
-        msg: "Total Disk Size: {{ total_disk_gb | round(2) }} GB"
+        msg:
+          - "Datastore Name: {{ item.datastores[0].name }}"
+          - "Datastore Capacity (GB): {{ (item.datastores[0].capacity | float / 1024 / 1024 / 1024) | round(2) }}"
+          - "Datastore Free Space (GB): {{ (item.datastores[0].freeSpace | float / 1024 / 1024 / 1024) | round(2) }}"
+      loop: "{{ datastore_facts.results }}"
+      when: item.datastores is defined and (item.datastores|length > 0)
+      loop_control:
+        label: "{{ item.datastores[0].name }}"
+
+
+#---
+#- name: get VM disk space for AWX inventory hosts
+#  hosts: all
+#  gather_facts: no
+#
+#  vars:
+#    snapshot_name: "Snapshot for patching"
+#    vcenter_hostname: "{{ lookup('env', 'VCENTER_HOSTNAME') }}"
+#    vcenter_username: "{{ lookup('env', 'VCENTER_USERNAME') }}"
+#    vcenter_password: "{{ lookup('env', 'VCENTER_PASSWORD') }}"
+#    datacenter_name: "vDC-TBD-Site"
+#
+#  tasks:
+#
+#    # -----------------------------------
+#    # GET ONLY DISK INFORMATION
+#    # -----------------------------------
+#    - name: Get disk info for VM
+#      vmware_guest_disk_info:
+#        hostname: "{{ vcenter_hostname }}"
+#        username: "{{ vcenter_username }}"
+#        password: "{{ vcenter_password }}"
+#        validate_certs: no
+#        name: "{{ inventory_hostname }}"
+#      delegate_to: localhost
+#      register: disk_info
+#
+#    - name: Show raw disk info (debug)
+#      debug:
+#        var: disk_info
+#
+#    # -------------------------------
+#    # FIXED — NO MORE ERRORS
+#    # -------------------------------
+#    - name: Calculate total disk size in GB
+#      set_fact:
+#        total_disk_gb: >-
+#          {{ disk_info.guest_disk_info
+#            | dict2items
+#            | map(attribute='value.capacity_in_bytes')
+#            | sum
+#            | float / 1024 / 1024 / 1024 }}
+#
+#    - name: Show total disk size
+#      debug:
+#        msg: "Total Disk Size: {{ total_disk_gb | round(2) }} GB"
