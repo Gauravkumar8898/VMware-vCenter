@@ -1,31 +1,98 @@
 ---
-- name: Create VMware snapshots for AWX inventory hosts
+- name: Conditional Snapshot based on Disk Space
   hosts: all
   gather_facts: no
+  connection: local
 
   vars:
+    # Snapshot Configuration
     snapshot_name: "Snapshot for patching"
+
+    # vCenter Configuration
     vcenter_hostname: "{{ lookup('env', 'VCENTER_HOSTNAME') }}"
     vcenter_username: "{{ lookup('env', 'VCENTER_USERNAME') }}"
     vcenter_password: "{{ lookup('env', 'VCENTER_PASSWORD') }}"
     datacenter_name: "vDC-TBD-Site"
 
   tasks:
-    - name: Create snapshot for each inventory host
+    # -------------------------------------------------------
+    # 1. Get VM High-Level Info (Includes Storage Summary)
+    # -------------------------------------------------------
+    - name: Get VM facts (including storage summary and datastore names)
+      community.vmware.vmware_guest_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: no
+        datacenter: "{{ datacenter_name }}"
+        name: "{{ inventory_hostname }}"
+        schema: "vsphere"
+        properties:
+          - summary.storage
+          - datastore
+      delegate_to: localhost
+      register: vm_facts
+
+    # -------------------------------------------------------
+    # 2. Get Datastore Specifics (Capacity/Free Space)
+    # -------------------------------------------------------
+    - name: Get info for the Datastore(s) backing this VM
+      community.vmware.vmware_datastore_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: no
+        datacenter: "{{ datacenter_name }}"
+        name: "{{ item.name }}"
+      delegate_to: localhost
+      loop: "{{ vm_facts.instance.datastore }}"
+      register: datastore_facts
+      when: vm_facts.instance.datastore is defined
+
+    # -------------------------------------------------------
+    # 3. Calculate Aggregates for Logic
+    # -------------------------------------------------------
+    - name: Calculate Storage Metrics
+      ansible.builtin.set_fact:
+        # Sum free space of all datastores attached to this VM
+        total_datastore_free: "{{ datastore_facts.results | map(attribute='datastores.0.freeSpace') | map('int') | sum }}"
+        # VM Committed storage (bytes)
+        vm_committed_storage: "{{ vm_facts.instance.summary.storage.committed | int }}"
+      when: datastore_facts.results is defined
+
+    - name: Display Storage Metrics & Decision
+      ansible.builtin.debug:
+        msg:
+          - "---------------------------------------------"
+          - "VM Name: {{ inventory_hostname }}"
+          - "VM Committed Storage: {{ (vm_committed_storage | float / 1024**3) | round(2) }} GB"
+          - "Total Datastore Free: {{ (total_datastore_free | float / 1024**3) | round(2) }} GB"
+          - "Condition Met (Free > Committed): {{ total_datastore_free | int > vm_committed_storage | int }}"
+          - "---------------------------------------------"
+
+    # -------------------------------------------------------
+    # 4. Create Snapshot (CONDITIONAL)
+    # -------------------------------------------------------
+    - name: Create snapshot if Datastore Free Space > VM Storage
       community.vmware.vmware_guest_snapshot:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
         datacenter: "{{ datacenter_name }}"
-        folder: /vDC-TBD-Site/vm
+        folder: "/{{ datacenter_name }}/vm"
         validate_certs: no
         name: "{{ inventory_hostname }}"
         state: present
         snapshot_name: "{{ snapshot_name }}"
-        description: "Snapshot created by AWX"
+        description: "Snapshot created by AWX - Space check passed"
       delegate_to: localhost
-      register: snapshot_results
+      # This is the logic you requested:
+      when:
+        - total_datastore_free is defined
+        - total_datastore_free | int > vm_committed_storage | int
+      register: snapshot_result
 
-    - name: Show snapshot results
-      debug:
-        var: snapshot_results
+    - name: Show snapshot result
+      ansible.builtin.debug:
+        var: snapshot_result
+      when: snapshot_result is not skipped

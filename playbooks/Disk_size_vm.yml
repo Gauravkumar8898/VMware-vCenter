@@ -15,7 +15,7 @@
     # 1. Get VM High-Level Info (Includes Storage Summary)
     # -------------------------------------------------------
     - name: Get VM facts (including storage summary and datastore names)
-      vmware_guest_info:
+      community.vmware.vmware_guest_info:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
@@ -34,7 +34,7 @@
     # -------------------------------------------------------
     # A VM might be on multiple datastores, so we loop through the list found in step 1
     - name: Get info for the Datastore(s) backing this VM
-      vmware_datastore_info:
+      community.vmware.vmware_datastore_info:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
@@ -50,7 +50,7 @@
     # 3. Calculate and Display Results
     # -------------------------------------------------------
     - name: Display Storage Metrics
-      debug:
+      ansible.builtin.debug:
         msg:
           - "---------------------------------------------"
           - "VM Name: {{ inventory_hostname }}"
@@ -62,7 +62,7 @@
           - "Datastore Details:"
 
     - name: Print Details per Datastore
-      debug:
+      ansible.builtin.debug:
         msg:
           - "Datastore Name: {{ item.datastores[0].name }}"
           - "Datastore Capacity (GB): {{ (item.datastores[0].capacity | float / 1024 / 1024 / 1024) | round(2) }}"
@@ -71,51 +71,3 @@
       when: item.datastores is defined and (item.datastores|length > 0)
       loop_control:
         label: "{{ item.datastores[0].name }}"
-
-
-#---
-#- name: get VM disk space for AWX inventory hosts
-#  hosts: all
-#  gather_facts: no
-#
-#  vars:
-#    snapshot_name: "Snapshot for patching"
-#    vcenter_hostname: "{{ lookup('env', 'VCENTER_HOSTNAME') }}"
-#    vcenter_username: "{{ lookup('env', 'VCENTER_USERNAME') }}"
-#    vcenter_password: "{{ lookup('env', 'VCENTER_PASSWORD') }}"
-#    datacenter_name: "vDC-TBD-Site"
-#
-#  tasks:
-#
-#    # -----------------------------------
-#    # GET ONLY DISK INFORMATION
-#    # -----------------------------------
-#    - name: Get disk info for VM
-#      vmware_guest_disk_info:
-#        hostname: "{{ vcenter_hostname }}"
-#        username: "{{ vcenter_username }}"
-#        password: "{{ vcenter_password }}"
-#        validate_certs: no
-#        name: "{{ inventory_hostname }}"
-#      delegate_to: localhost
-#      register: disk_info
-#
-#    - name: Show raw disk info (debug)
-#      debug:
-#        var: disk_info
-#
-#    # -------------------------------
-#    # FIXED — NO MORE ERRORS
-#    # -------------------------------
-#    - name: Calculate total disk size in GB
-#      set_fact:
-#        total_disk_gb: >-
-#          {{ disk_info.guest_disk_info
-#            | dict2items
-#            | map(attribute='value.capacity_in_bytes')
-#            | sum
-#            | float / 1024 / 1024 / 1024 }}
-#
-#    - name: Show total disk size
-#      debug:
-#        msg: "Total Disk Size: {{ total_disk_gb | round(2) }} GB"
