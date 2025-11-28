@@ -35,6 +35,11 @@
       delegate_to: localhost
       register: snapshot_facts
 
+    - name: Debug Snapshot Data Structure
+      ansible.builtin.debug:
+        var: snapshot_facts.guest_snapshots
+      verbosity: 1
+
     # -------------------------------------------------------
     # 2. Analyze and Delete Old Snapshots
     # -------------------------------------------------------
@@ -50,19 +55,23 @@
         state: absent
         snapshot_name: "{{ item.name }}"
       delegate_to: localhost
-      # Loop through all snapshots found on the VM
-      # FIX: Added '| list' to handle cases where an empty dict {} is returned instead of a list
-      loop: "{{ snapshot_facts.guest_snapshots | default([]) | list }}"
+      # FIX: Handle both Dictionary and List return types safely
+      # If it's a dict (mapping), we iterate over values(). If list, iterate directly.
+      loop: >-
+        {{ 
+          snapshot_facts.guest_snapshots.values() | list 
+          if snapshot_facts.guest_snapshots is mapping 
+          else snapshot_facts.guest_snapshots | default([]) 
+        }}
       when:
-        # 1. Check if the snapshot name matches our target
+        # Safety check: Ensure item has 'name' before comparing
+        - item.name is defined
         - item.name == snapshot_name
-        # 2. Check if the snapshot is older than 72 hours
-        #    We parse the creation_time (ISO8601) and compare it to now(utc=True)
-        #    72 hours * 3600 seconds/hour = 259200 seconds
+        # Age check
         - >-
           ((now(utc=True) - (item.creation_time | to_datetime('%Y-%m-%dT%H:%M:%S.%fZ'))).total_seconds()) > (max_age_hours * 3600)
       loop_control:
-        label: "{{ item.name }} (Created: {{ item.creation_time }})"
+        label: "{{ item.name | default('Unknown') }}"
       register: delete_result
 
     - name: Show deletion results
