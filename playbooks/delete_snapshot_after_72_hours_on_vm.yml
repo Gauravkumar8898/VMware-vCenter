@@ -38,8 +38,6 @@
     - name: Debug Snapshot Data Structure
       ansible.builtin.debug:
         var: snapshot_facts.guest_snapshots
-        # FIX: Indented verbosity to be a module parameter, not a task keyword
-        verbosity: 1
 
     # -------------------------------------------------------
     # 2. Analyze and Delete Old Snapshots
