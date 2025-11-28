@@ -5,21 +5,19 @@
   connection: local
 
   vars:
-    # Snapshot Configuration
+    # Snapshot Config
     snapshot_name: "Snapshot for patching"
     max_age_hours: 72
 
-    # vCenter Configuration
+    # vCenter Config
     vcenter_hostname: "{{ lookup('env', 'VCENTER_HOSTNAME') }}"
     vcenter_username: "{{ lookup('env', 'VCENTER_USERNAME') }}"
     vcenter_password: "{{ lookup('env', 'VCENTER_PASSWORD') }}"
-
-    # Path Configuration
-    datacenter_name: "vDC-TBD-Site"
-    # The 'folder' parameter is mandatory for finding VMs by name in these modules
-    vm_folder: "/{{ datacenter_name }}/vm"
+    datacenter_name: "{{ lookup('env', 'VCENTER_DATACENTER') }}"
+    vm_folder: "{{ lookup('env', 'VCENTER_VM_FOLDER') }}"   # REQUIRED for snapshot modules
 
   tasks:
+
     # -------------------------------------------------------
     # 1. Get Snapshot Information
     # -------------------------------------------------------
@@ -29,47 +27,56 @@
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
         datacenter: "{{ datacenter_name }}"
-        folder: "{{ vm_folder }}"
         name: "{{ inventory_hostname }}"
+        folder: "{{ vm_folder }}"
         validate_certs: no
       delegate_to: localhost
-      register: snapshot_facts
+      register: snapshot_info
 
-    - name: Debug Snapshot Data Structure
-      ansible.builtin.debug:
-        var: snapshot_facts.guest_snapshots
+    - name: Debug snapshot info
+      debug:
+        var: snapshot_info
 
     # -------------------------------------------------------
-    # 2. Analyze and Delete Old Snapshots
+    # 2. Find snapshots older than X hours
     # -------------------------------------------------------
-    - name: Delete snapshot if it exists and is older than {{ max_age_hours }} hours
+    - name: Filter snapshots older than {{ max_age_hours }} hours
+      set_fact:
+        old_snapshots: >-
+          {{
+            snapshot_info.snapshots
+            | json_query("[?create_time < `" + ((ansible_date_time.epoch | int) - (max_age_hours * 3600)) | to_datetime | to_iso8601 + "`]")
+          }}
+      when: snapshot_info.snapshots is defined
+
+    - name: Show old snapshots
+      debug:
+        var: old_snapshots
+      when: old_snapshots is defined
+
+    # -------------------------------------------------------
+    # 3. Delete old snapshots
+    # -------------------------------------------------------
+    - name: Delete each old snapshot
       community.vmware.vmware_guest_snapshot:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
         datacenter: "{{ datacenter_name }}"
         folder: "{{ vm_folder }}"
-        validate_certs: no
         name: "{{ inventory_hostname }}"
         state: absent
-        snapshot_name: "{{ item.name }}"
+        snapshot_id: "{{ item.id }}"
+        validate_certs: no
+      loop: "{{ old_snapshots }}"
+      when: old_snapshots | length > 0
       delegate_to: localhost
-      # FIX 1: Target the 'snapshots' list directly.
-      # 'guest_snapshots' contains metadata like 'current_snapshot' which we don't want to loop over.
-      loop: "{{ snapshot_facts.guest_snapshots.snapshots | default([]) }}"
-      when:
-        # Safety check
-        - item.name is defined
-        - item.name == snapshot_name
-        # FIX 2: Updated date format to '%f%z' to handle '+00:00' offset correctly
-        - >-
-          ((now(utc=True) - (item.creation_time | to_datetime('%Y-%m-%dT%H:%M:%S.%f%z'))).total_seconds()) > (max_age_hours * 3600)
-      loop_control:
-        label: "{{ item.name | default('Unknown') }}"
-      register: delete_result
+      register: delete_results
 
+    # -------------------------------------------------------
+    # 4. Show result
+    # -------------------------------------------------------
     - name: Show deletion results
-      ansible.builtin.debug:
-        msg: "Snapshot '{{ item.item.name }}' deleted: {{ item.changed }}"
-      loop: "{{ delete_result.results }}"
-      when: item.skipped is not defined or not item.skipped
+      debug:
+        var: delete_results
+      when: delete_results is defined
