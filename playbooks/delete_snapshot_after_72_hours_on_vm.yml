@@ -29,7 +29,7 @@
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
         datacenter: "{{ datacenter_name }}"
-        folder: "{{ vm_folder }}"   # <--- FIX: Added mandatory folder parameter
+        folder: "{{ vm_folder }}"
         name: "{{ inventory_hostname }}"
         validate_certs: no
       delegate_to: localhost
@@ -51,7 +51,8 @@
         snapshot_name: "{{ item.name }}"
       delegate_to: localhost
       # Loop through all snapshots found on the VM
-      loop: "{{ snapshot_facts.guest_snapshots | default([]) }}"
+      # FIX: Added '| list' to handle cases where an empty dict {} is returned instead of a list
+      loop: "{{ snapshot_facts.guest_snapshots | default([]) | list }}"
       when:
         # 1. Check if the snapshot name matches our target
         - item.name == snapshot_name
