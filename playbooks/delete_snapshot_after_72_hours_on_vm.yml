@@ -54,21 +54,16 @@
         state: absent
         snapshot_name: "{{ item.name }}"
       delegate_to: localhost
-      # FIX: Handle both Dictionary and List return types safely
-      # If it's a dict (mapping), we iterate over values(). If list, iterate directly.
-      loop: >-
-        {{ 
-          snapshot_facts.guest_snapshots.values() | list 
-          if snapshot_facts.guest_snapshots is mapping 
-          else snapshot_facts.guest_snapshots | default([]) 
-        }}
+      # FIX 1: Target the 'snapshots' list directly.
+      # 'guest_snapshots' contains metadata like 'current_snapshot' which we don't want to loop over.
+      loop: "{{ snapshot_facts.guest_snapshots.snapshots | default([]) }}"
       when:
-        # Safety check: Ensure item has 'name' before comparing
+        # Safety check
         - item.name is defined
         - item.name == snapshot_name
-        # Age check
+        # FIX 2: Updated date format to '%f%z' to handle '+00:00' offset correctly
         - >-
-          ((now(utc=True) - (item.creation_time | to_datetime('%Y-%m-%dT%H:%M:%S.%fZ'))).total_seconds()) > (max_age_hours * 3600)
+          ((now(utc=True) - (item.creation_time | to_datetime('%Y-%m-%dT%H:%M:%S.%f%z'))).total_seconds()) > (max_age_hours * 3600)
       loop_control:
         label: "{{ item.name | default('Unknown') }}"
       register: delete_result
