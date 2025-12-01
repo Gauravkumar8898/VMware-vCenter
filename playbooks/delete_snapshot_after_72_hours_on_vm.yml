@@ -6,9 +6,9 @@
   vars:
     snapshot_name: "Snapshot for patching"
     max_age_hours: 72
-    # Define the timestamp format matching your VMware output
-    # Example: 2025-11-28T03:32:45.512889+00:00
-    date_fmt: "%Y-%m-%dT%H:%M:%S.%f%z"
+    # We remove the %z here because we are going to strip the timezone manually
+    # to avoid the "offset-naive" error.
+    date_fmt: "%Y-%m-%dT%H:%M:%S.%f"
 
     # vCenter config
     vcenter_hostname: "{{ lookup('env', 'VCENTER_HOSTNAME') }}"
@@ -38,7 +38,7 @@
         vm_snapshots: "{{ snapshot_facts.guest_snapshots.snapshots | default([]) }}"
 
     # -------------------------------------------------------
-    # 2. Filter snapshots (The Fix)
+    # 2. Filter snapshots (Fixed for Timezone Error)
     # -------------------------------------------------------
     - name: Initialize empty deletion list
       set_fact:
@@ -51,11 +51,15 @@
       when:
         # 1. Check if name matches
         - item.name == snapshot_name
-        # 2. Convert creation_time string to datetime and compare
+        # 2. Logic:
+        #    a. item.creation_time.split('+')[0] -> takes "2025-11-28T03:32:45.512889" (removes +00:00)
+        #    b. to_datetime(date_fmt) -> Converts to Naive Datetime
+        #    c. now(utc=true).replace(tzinfo=None) -> Gets current UTC time as Naive Datetime
         - >-
-          ((now(utc=true)) - 
-          (item.creation_time | to_datetime(date_fmt)))
-          .total_seconds() > (max_age_hours | int * 3600)
+          (
+            (now(utc=true).replace(tzinfo=None)) - 
+            (item.creation_time.split('+')[0] | to_datetime(date_fmt))
+          ).total_seconds() > (max_age_hours | int * 3600)
 
     - name: Debug snapshots identified for deletion
       debug:
@@ -65,7 +69,7 @@
     # -------------------------------------------------------
     # 3. Delete snapshots
     # -------------------------------------------------------
-    - name: Delete identified snapshots
+    - name: Delete snapshots older than {{ max_age_hours }} hours
       community.vmware.vmware_guest_snapshot:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
@@ -79,7 +83,10 @@
       delegate_to: localhost
       loop: "{{ snapshots_to_delete }}"
       register: delete_result
+      # Safety check: ensure list exists
+      when: snapshots_to_delete | length > 0
 
     - name: Show deletion results
       debug:
         var: delete_result
+      when: delete_result is defined
