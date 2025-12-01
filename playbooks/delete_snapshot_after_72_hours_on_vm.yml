@@ -1,4 +1,3 @@
----
 - name: Delete VMware snapshots older than 72 hours
   hosts: all
   gather_facts: no
@@ -7,6 +6,9 @@
   vars:
     snapshot_name: "Snapshot for patching"
     max_age_hours: 72
+    # Define the timestamp format matching your VMware output
+    # Example: 2025-11-28T03:32:45.512889+00:00
+    date_fmt: "%Y-%m-%dT%H:%M:%S.%f%z"
 
     # vCenter config
     vcenter_hostname: "{{ lookup('env', 'VCENTER_HOSTNAME') }}"
@@ -16,7 +18,6 @@
     vm_folder: "/{{ datacenter_name }}/vm"
 
   tasks:
-
     # -------------------------------------------------------
     # 1. Get snapshot info
     # -------------------------------------------------------
@@ -32,81 +33,39 @@
       delegate_to: localhost
       register: snapshot_facts
 
-    - name: Debug snapshot structure
-      ansible.builtin.debug:
-        var: snapshot_facts.guest_snapshots
-
-    # -------------------------------------------------------
-    # 2. Extract list safely
-    # -------------------------------------------------------
-    - name: Set snapshot list
+    - name: Set snapshot list safely
       set_fact:
         vm_snapshots: "{{ snapshot_facts.guest_snapshots.snapshots | default([]) }}"
 
     # -------------------------------------------------------
-    # 3. Filter snapshots older than X hours
+    # 2. Filter snapshots (The Fix)
     # -------------------------------------------------------
-    - name: Find snapshots older than {{ max_age_hours }} hours
+    - name: Initialize empty deletion list
       set_fact:
-        old_snapshots: >-
-          {{
-            vm_snapshots
-            | selectattr('name', 'equalto', snapshot_name)
-            | selectattr(
-                'creation_time',
-                'match',
-                '.*'
-              )
-            | select(
-                'selectattr',
-                'creation_time',
-                'defined'
-              )
-            | select(
-                'selectattr',
-                'creation_time',
-                'truthy'
-              )
-            | select(
-                'extract',
-                'creation_time'
-              )
-          }}
-      when: vm_snapshots | length > 0
+        snapshots_to_delete: []
 
-    - name: Determine snapshots older than threshold
+    - name: Populate list of snapshots older than {{ max_age_hours }} hours
       set_fact:
-        snapshots_to_delete: >-
-          {{
-            vm_snapshots
-            | selectattr('name', 'equalto', snapshot_name)
-            | selectattr(
-                'creation_time',
-                'search',
-                '.+'
-              )
-            | selectattr(
-                'creation_time',
-                'map',
-                'to_datetime',
-                '%Y-%m-%dT%H:%M:%S.%f%z'
-              )
-            | selectattr(
-                'creation_time',
-                'select',
-                'lt',
-                (now(tz="UTC") | to_datetime) - max_age_hours*3600
-              )
-          }}
+        snapshots_to_delete: "{{ snapshots_to_delete + [item] }}"
+      loop: "{{ vm_snapshots }}"
+      when:
+        # 1. Check if name matches
+        - item.name == snapshot_name
+        # 2. Convert creation_time string to datetime and compare
+        - >-
+          ((now(utc=true)) - 
+          (item.creation_time | to_datetime(date_fmt)))
+          .total_seconds() > (max_age_hours | int * 3600)
 
-    - name: Debug snapshots to delete
+    - name: Debug snapshots identified for deletion
       debug:
-        var: snapshots_to_delete
+        msg: "Will delete: {{ item.name }} (Created: {{ item.creation_time }})"
+      loop: "{{ snapshots_to_delete }}"
 
     # -------------------------------------------------------
-    # 4. Delete snapshots
+    # 3. Delete snapshots
     # -------------------------------------------------------
-    - name: Delete snapshots older than {{ max_age_hours }} hours
+    - name: Delete identified snapshots
       community.vmware.vmware_guest_snapshot:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
@@ -119,10 +78,8 @@
         validate_certs: no
       delegate_to: localhost
       loop: "{{ snapshots_to_delete }}"
-      when: snapshots_to_delete | length > 0
       register: delete_result
 
     - name: Show deletion results
       debug:
         var: delete_result
-      when: delete_result is defined
