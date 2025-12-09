@@ -51,7 +51,7 @@
       when: vm_facts.instance.datastore is defined
 
     # -------------------------------------------------------
-    # 3. Calculate Aggregates for Logic
+    # 3. Calculate Aggregates for Logics
     # -------------------------------------------------------
     - name: Calculate Storage Metrics
       ansible.builtin.set_fact:
