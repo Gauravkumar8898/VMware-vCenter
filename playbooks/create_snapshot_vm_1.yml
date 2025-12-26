@@ -6,7 +6,7 @@
 
   # Fail fast if vCenter credentials are missing
   vars:
-    snapshot_name: "Patching_Snapshot_{{ ansible_date_time.date | default('today') }}"
+    snapshot_name: "Snapshot for patching"
     snapshot_desc: "Created by Ansible via AWX for Patching Maintenance"
 
     # Credentials (Best Practice: Inject these via AWX Credentials)
