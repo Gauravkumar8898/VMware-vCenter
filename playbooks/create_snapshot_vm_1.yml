@@ -14,6 +14,7 @@
     vcenter_username: "{{ lookup('env', 'VCENTER_USERNAME') }}"
     vcenter_password: "{{ lookup('env', 'VCENTER_PASSWORD') }}"
     datacenter_name: "{{ lookup('env', 'VCENTER_DATACENTER') }}"
+    vm_folder: "{{ lookup('env', 'VCENTER_VM_FOLDER') }}"
 
   tasks:
     # -------------------------------------------------------------------------
