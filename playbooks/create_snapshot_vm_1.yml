@@ -36,7 +36,7 @@
       delegate_to: localhost
       register: vm_facts
 
-    # -------------------------------------------------------------------------
+# -------------------------------------------------------------------------
     # STEP 2: GATHER DATASTORE FACTS
     # -------------------------------------------------------------------------
     - name: "2. Fetch Datastore Capacity Details"
@@ -46,22 +46,20 @@
         password: "{{ vcenter_password }}"
         validate_certs: no
         datacenter: "{{ datacenter_name }}"
-        name: "{{ item.name }}"
+        name: "{{ item }}"  # FIXED: Removed .name
       delegate_to: localhost
       loop: "{{ vm_facts.instance.datastore }}"
       register: datastore_facts
       when: vm_facts.instance.datastore is defined
 
     # -------------------------------------------------------------------------
-    # STEP 3: CALCULATE LOGIC (THE DECISION ENGINE)
+    # STEP 3: CALCULATE LOGIC
     # -------------------------------------------------------------------------
     - name: "3. Evaluate Safety Conditions"
       ansible.builtin.set_fact:
-        # Math: Sum of Free Space on all attached Datastores
-        total_ds_free_bytes: "{{ datastore_facts.results | map(attribute='datastores.0.freeSpace') | map('int') | sum }}"
-        # Math: Total Space the VM is currently using (Committed)
+        # Note: datastore_info returns a list called 'datastores' inside each result
+        total_ds_free_bytes: "{{ datastore_facts.results | map(attribute='datastores') | flatten | map(attribute='freeSpace') | map('int') | sum }}"
         vm_committed_bytes: "{{ vm_facts.instance.summary.storage.committed | int }}"
-        # Boolean: Is VM Powered On?
         is_powered_on: "{{ vm_facts.instance.summary.runtime.powerState == 'poweredOn' }}"
       when: datastore_facts.results is defined
 
