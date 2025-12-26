@@ -98,7 +98,7 @@
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
         datacenter: "{{ datacenter_name }}"
-        folder: "{{ vm_facts.instance.parentVmkDisplayName | default(omit) }}" # Auto-detect folder
+        folder: "{{ vm_folder }}"
         validate_certs: no
         name: "{{ inventory_hostname }}"
         state: present
