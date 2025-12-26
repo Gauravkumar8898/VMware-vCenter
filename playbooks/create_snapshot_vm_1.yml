@@ -57,11 +57,19 @@
     # -------------------------------------------------------------------------
     - name: "3. Evaluate Safety Conditions"
       ansible.builtin.set_fact:
-        # Note: datastore_info returns a list called 'datastores' inside each result
-        total_ds_free_bytes: "{{ datastore_facts.results | map(attribute='datastores') | flatten | map(attribute='freeSpace') | map('int') | sum }}"
+        total_ds_free_bytes: >-
+          {{
+            (datastore_facts.results | default([])
+             | map(attribute='datastores')
+             | flatten
+             | map(attribute='freeSpace')
+             | map('int')
+             | list
+             | sum)
+          }}
         vm_committed_bytes: "{{ vm_facts.instance.summary.storage.committed | int }}"
         is_powered_on: "{{ vm_facts.instance.summary.runtime.powerState == 'poweredOn' }}"
-      when: datastore_facts.results is defined
+
 
     - name: "4. Define Pass/Fail Flags"
       ansible.builtin.set_fact:
