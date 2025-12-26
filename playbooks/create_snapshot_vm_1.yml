@@ -39,18 +39,16 @@
 # -------------------------------------------------------------------------
     # STEP 2: GATHER DATASTORE FACTS
     # -------------------------------------------------------------------------
-    - name: "2. Fetch Datastore Capacity Details"
+    - name: "2. Fetch ALL Datastore Capacity Details"
       community.vmware.vmware_datastore_info:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
         validate_certs: no
         datacenter: "{{ datacenter_name }}"
-        name: "{{ item }}"  # FIXED: Removed .name
       delegate_to: localhost
-      loop: "{{ vm_facts.instance.datastore }}"
-      register: datastore_facts
-      when: vm_facts.instance.datastore is defined
+      register: all_datastores
+
 
     # -------------------------------------------------------------------------
     # STEP 3: CALCULATE LOGIC
@@ -59,9 +57,12 @@
       ansible.builtin.set_fact:
         total_ds_free_bytes: >-
           {{
-            (datastore_facts.results | default([])
-             | map(attribute='datastores')
-             | flatten
+            (all_datastores.datastores | default([])
+             | selectattr('_vimref', 'in',
+                 vm_facts.instance.datastore
+                 | map(attribute='_vimref')
+                 | list
+             )
              | map(attribute='freeSpace')
              | map('int')
              | list
@@ -69,6 +70,7 @@
           }}
         vm_committed_bytes: "{{ vm_facts.instance.summary.storage.committed | int }}"
         is_powered_on: "{{ vm_facts.instance.summary.runtime.powerState == 'poweredOn' }}"
+
 
 
     - name: "4. Define Pass/Fail Flags"
