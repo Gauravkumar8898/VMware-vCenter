@@ -1,15 +1,14 @@
 ---
-- name: Production VM Snapshot (Safety Checks:- Power & Space)
+- name: Production VM Snapshot
   hosts: all
   gather_facts: no
   connection: local
 
-  # Fail fast if vCenter credentials are missing
   vars:
     snapshot_name: "Snapshot for patching"
     snapshot_desc: "Created by Ansible via AWX for Patching Maintenance"
 
-    # Credentials (Best Practice: Inject these via AWX Credentials)
+    # vCenter credentials (Injected via AWX)
     vcenter_hostname: "{{ lookup('env', 'VCENTER_HOSTNAME') }}"
     vcenter_username: "{{ lookup('env', 'VCENTER_USERNAME') }}"
     vcenter_password: "{{ lookup('env', 'VCENTER_PASSWORD') }}"
@@ -18,9 +17,9 @@
 
   tasks:
     # -------------------------------------------------------------------------
-    # STEP 1: GATHER VM FACTS
+    # STEP 1: VM FACTS
     # -------------------------------------------------------------------------
-    - name: "1. Fetch VM Facts (Storage & Power)"
+    - name: "1. Fetch VM Facts"
       community.vmware.vmware_guest_info:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
@@ -28,7 +27,7 @@
         validate_certs: no
         datacenter: "{{ datacenter_name }}"
         name: "{{ inventory_hostname }}"
-        schema: "vsphere"
+        schema: vsphere
         properties:
           - summary.storage
           - summary.runtime
@@ -36,10 +35,10 @@
       delegate_to: localhost
       register: vm_facts
 
-# -------------------------------------------------------------------------
-    # STEP 2: GATHER DATASTORE FACTS
     # -------------------------------------------------------------------------
-    - name: "2. Fetch ALL Datastore Capacity Details"
+    # STEP 2: DATASTORE FACTS
+    # -------------------------------------------------------------------------
+    - name: "2. Fetch Datastore Details"
       community.vmware.vmware_datastore_info:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
@@ -49,66 +48,102 @@
       delegate_to: localhost
       register: all_datastores
 
+    # -------------------------------------------------------------------------
+    # STEP 3: VM DISK INFO (CRITICAL FOR MULTI-DS)
+    # -------------------------------------------------------------------------
+    - name: "3. Fetch VM Disk Information"
+      community.vmware.vmware_guest_disk_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: no
+        datacenter: "{{ datacenter_name }}"
+        name: "{{ inventory_hostname }}"
+      delegate_to: localhost
+      register: vm_disks
 
     # -------------------------------------------------------------------------
-    # STEP 3: CALCULATE LOGIC
+    # STEP 4: CALCULATIONS
     # -------------------------------------------------------------------------
-    - name: "3. Evaluate Safety Conditions"
-      ansible.builtin.set_fact:
-        total_ds_free_bytes: >-
+    - name: "4. Extract VM Datastore Names"
+      set_fact:
+        vm_datastore_names: "{{ vm_facts.instance.datastore | map(attribute='name') | list }}"
+
+    - name: "5. Build Committed Size Per Datastore"
+      set_fact:
+        ds_committed_map: >-
           {{
-            (all_datastores.datastores | default([])
-             | selectattr('_vimref', 'in',
-                 vm_facts.instance.datastore
-                 | map(attribute='_vimref')
-                 | list
-             )
-             | map(attribute='freeSpace')
-             | map('int')
-             | list
-             | sum)
+            ds_committed_map | default({}) |
+            combine({
+              item.datastore:
+                (ds_committed_map[item.datastore] | default(0))
+                + (item.capacity_in_bytes | int)
+            })
           }}
-        vm_committed_bytes: "{{ vm_facts.instance.summary.storage.committed | int }}"
-        is_powered_on: "{{ vm_facts.instance.summary.runtime.powerState == 'poweredOn' }}"
+      loop: "{{ vm_disks.disk_info }}"
 
+    - name: "6. Filter Datastores Used by VM"
+      set_fact:
+        vm_datastores: >-
+          {{
+            all_datastores.datastores
+            | selectattr('name', 'in', vm_datastore_names)
+            | list
+          }}
 
+    - name: "7. Evaluate Per-Datastore Space (20% Buffer)"
+      set_fact:
+        ds_space_check: >-
+          {{
+            ds_space_check | default({}) |
+            combine({
+              item.name:
+                (
+                  item.freeSpace | int >
+                  (ds_committed_map[item.name] | default(0) * 1.2)
+                )
+            })
+          }}
+      loop: "{{ vm_datastores }}"
 
-    - name: "4. Define Pass/Fail Flags"
-      ansible.builtin.set_fact:
-        # Logic: Free Space MUST be greater than Committed Space
-        check_space: "{{ total_ds_free_bytes | int > vm_committed_bytes | int }}"
-        check_power: "{{ is_powered_on }}"
+    - name: "8. Final Space & Power Decision"
+      set_fact:
+        check_space: "{{ ds_space_check.values() | min }}"
+        check_power: "{{ vm_facts.instance.summary.runtime.powerState == 'poweredOn' }}"
 
     # -------------------------------------------------------------------------
-    # STEP 4: REPORTING (LOGGING)
+    # STEP 5: REPORTING
     # -------------------------------------------------------------------------
-    - name: "5. Pre-Flight Check Summary"
-      ansible.builtin.debug:
+    - name: "9. Datastore Space Report"
+      debug:
+        msg:
+          - "Datastore : {{ item.key }}"
+          - "Committed : {{ (ds_committed_map[item.key] | default(0) / 1073741824) | round(2) }} GB"
+          - "Free      : {{ (vm_datastores | selectattr('name','equalto',item.key) | first).freeSpace / 1073741824 | round(2) }} GB"
+          - "Status    : {{ 'PASS' if item.value else 'FAIL' }}"
+      loop: "{{ ds_space_check | dict2items }}"
+
+    - name: "10. Pre-Flight Summary"
+      debug:
         msg:
           - "======================================================="
-          - " HOST: {{ inventory_hostname }}"
-          - "-------------------------------------------------------"
-          - " 1. POWER CHECK : {{ 'PASS' if check_power else 'FAIL (VM is OFF)' }}"
-          - "    - State     : {{ vm_facts.instance.summary.runtime.powerState }}"
-          - "-------------------------------------------------------"
-          - " 2. SPACE CHECK : {{ 'PASS' if check_space else 'FAIL (Low Space)' }}"
-          - "    - Committed : {{ (vm_committed_bytes | float / 1073741824) | round(2) }} GB"
-          - "    - Free      : {{ (total_ds_free_bytes | float / 1073741824) | round(2) }} GB"
-          - "-------------------------------------------------------"
-          - " ACTION         : {{ 'TAKING SNAPSHOT' if (check_power and check_space) else 'SKIPPING' }}"
+          - " HOST   : {{ inventory_hostname }}"
+          - " POWER  : {{ 'PASS' if check_power else 'FAIL' }}"
+          - " SPACE  : {{ 'PASS' if check_space else 'FAIL' }}"
+          - " ACTION : {{ 'TAKING SNAPSHOT' if (check_power and check_space) else 'SKIPPING' }}"
           - "======================================================="
 
     # -------------------------------------------------------------------------
-    # STEP 5: EXECUTION (CONDITIONAL SNAPSHOT)
+    # STEP 6: SNAPSHOT
     # -------------------------------------------------------------------------
-    - name: "6. Create Snapshot (Skipped if checks fail)"
+    - name: "11. Create Snapshot"
       community.vmware.vmware_guest_snapshot:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
+        validate_certs: no
         datacenter: "{{ datacenter_name }}"
         folder: "{{ vm_folder }}"
-        validate_certs: no
         name: "{{ inventory_hostname }}"
         state: present
         snapshot_name: "{{ snapshot_name }}"
@@ -116,13 +151,12 @@
         quiesce: no
         memory_dump: no
       delegate_to: localhost
-      register: snapshot_result
-      # This is the Safety Guard:
       when:
         - check_power | bool
         - check_space | bool
+      register: snapshot_result
 
-    - name: "7. Success Confirmation"
-      ansible.builtin.debug:
+    - name: "12. Snapshot Success Confirmation"
+      debug:
         msg: "Snapshot created successfully for {{ inventory_hostname }}"
       when: snapshot_result is changed
