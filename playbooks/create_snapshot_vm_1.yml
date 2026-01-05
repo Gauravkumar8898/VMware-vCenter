@@ -66,7 +66,14 @@
     # -------------------------------------------------------------------------
     - name: Extract VM Datastore Names
       set_fact:
-        vm_datastore_names: "{{ vm_facts.instance.datastore | map(attribute='name') | list }}"
+        # If datastore is a list of strings, we use it directly.
+        # If it's a list of dicts, we map it. This handles both.
+        vm_datastore_names: >-
+          {% if vm_facts.instance.datastore[0] is string %}
+            {{ vm_facts.instance.datastore }}
+          {% else %}
+            {{ vm_facts.instance.datastore | map(attribute='name') | list }}
+          {% endif %}
 
     - name: Build committed size per datastore
       set_fact:
@@ -79,7 +86,6 @@
                 + (item.capacity_in_bytes | int)
             })
           }}
-      # FIX: Use .guest_disk_info.values() to handle the dictionary structure
       loop: "{{ vm_disks.guest_disk_info.values() | list }}"
       when: vm_disks.guest_disk_info is defined
 
@@ -142,7 +148,6 @@
         password: "{{ vcenter_password }}"
         validate_certs: no
         datacenter: "{{ datacenter_name }}"
-        folder: "{{ vm_folder }}"
         name: "{{ inventory_hostname }}"
         state: present
         snapshot_name: "{{ snapshot_name }}"
