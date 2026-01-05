@@ -1,5 +1,5 @@
 ---
-- name: Production VM Snapshot
+- name: Production VM Snapshot Safety
   hosts: all
   gather_facts: no
   connection: local
@@ -8,7 +8,6 @@
     snapshot_name: "Snapshot for patching"
     snapshot_desc: "Created by Ansible via AWX for Patching Maintenance"
 
-    # vCenter credentials (Injected via AWX)
     vcenter_hostname: "{{ lookup('env', 'VCENTER_HOSTNAME') }}"
     vcenter_username: "{{ lookup('env', 'VCENTER_USERNAME') }}"
     vcenter_password: "{{ lookup('env', 'VCENTER_PASSWORD') }}"
@@ -19,7 +18,7 @@
     # -------------------------------------------------------------------------
     # STEP 1: VM FACTS
     # -------------------------------------------------------------------------
-    - name: "1. Fetch VM Facts"
+    - name: Fetch VM Facts
       community.vmware.vmware_guest_info:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
@@ -38,7 +37,7 @@
     # -------------------------------------------------------------------------
     # STEP 2: DATASTORE FACTS
     # -------------------------------------------------------------------------
-    - name: "2. Fetch Datastore Details"
+    - name: Fetch Datastore Details
       community.vmware.vmware_datastore_info:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
@@ -49,9 +48,9 @@
       register: all_datastores
 
     # -------------------------------------------------------------------------
-    # STEP 3: VM DISK INFO (CRITICAL FOR MULTI-DS)
+    # STEP 3: VM DISK INFO (CRITICAL)
     # -------------------------------------------------------------------------
-    - name: "3. Fetch VM Disk Information"
+    - name: Fetch VM Disk Information
       community.vmware.vmware_guest_disk_info:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
@@ -65,11 +64,11 @@
     # -------------------------------------------------------------------------
     # STEP 4: CALCULATIONS
     # -------------------------------------------------------------------------
-    - name: "4. Extract VM Datastore Names"
+    - name: Extract VM Datastore Names (FIXED)
       set_fact:
-        vm_datastore_names: "{{ vm_facts.instance.datastore | map(attribute='name') | list }}"
+        vm_datastore_names: "{{ vm_facts.instance.datastore | list }}"
 
-    - name: "5. Build Committed Size Per Datastore"
+    - name: Build committed size per datastore
       set_fact:
         ds_committed_map: >-
           {{
@@ -82,7 +81,7 @@
           }}
       loop: "{{ vm_disks.disk_info }}"
 
-    - name: "6. Filter Datastores Used by VM"
+    - name: Filter VM-attached datastores
       set_fact:
         vm_datastores: >-
           {{
@@ -91,7 +90,7 @@
             | list
           }}
 
-    - name: "7. Evaluate Per-Datastore Space (20% Buffer)"
+    - name: Validate per-datastore free space (20% buffer)
       set_fact:
         ds_space_check: >-
           {{
@@ -106,7 +105,7 @@
           }}
       loop: "{{ vm_datastores }}"
 
-    - name: "8. Final Space & Power Decision"
+    - name: Final power & space decision
       set_fact:
         check_space: "{{ ds_space_check.values() | min }}"
         check_power: "{{ vm_facts.instance.summary.runtime.powerState == 'poweredOn' }}"
@@ -114,7 +113,7 @@
     # -------------------------------------------------------------------------
     # STEP 5: REPORTING
     # -------------------------------------------------------------------------
-    - name: "9. Datastore Space Report"
+    - name: Datastore Space Report
       debug:
         msg:
           - "Datastore : {{ item.key }}"
@@ -123,20 +122,18 @@
           - "Status    : {{ 'PASS' if item.value else 'FAIL' }}"
       loop: "{{ ds_space_check | dict2items }}"
 
-    - name: "10. Pre-Flight Summary"
+    - name: Pre-flight summary
       debug:
         msg:
-          - "======================================================="
-          - " HOST   : {{ inventory_hostname }}"
-          - " POWER  : {{ 'PASS' if check_power else 'FAIL' }}"
-          - " SPACE  : {{ 'PASS' if check_space else 'FAIL' }}"
-          - " ACTION : {{ 'TAKING SNAPSHOT' if (check_power and check_space) else 'SKIPPING' }}"
-          - "======================================================="
+          - "HOST   : {{ inventory_hostname }}"
+          - "POWER  : {{ 'PASS' if check_power else 'FAIL' }}"
+          - "SPACE  : {{ 'PASS' if check_space else 'FAIL' }}"
+          - "ACTION : {{ 'TAKING SNAPSHOT' if (check_power and check_space) else 'SKIPPING' }}"
 
     # -------------------------------------------------------------------------
     # STEP 6: SNAPSHOT
     # -------------------------------------------------------------------------
-    - name: "11. Create Snapshot"
+    - name: Create Snapshot
       community.vmware.vmware_guest_snapshot:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
@@ -152,11 +149,11 @@
         memory_dump: no
       delegate_to: localhost
       when:
-        - check_power | bool
-        - check_space | bool
+        - check_power
+        - check_space
       register: snapshot_result
 
-    - name: "12. Snapshot Success Confirmation"
+    - name: Snapshot success confirmation
       debug:
         msg: "Snapshot created successfully for {{ inventory_hostname }}"
       when: snapshot_result is changed
