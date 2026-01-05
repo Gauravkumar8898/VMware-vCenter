@@ -1,5 +1,5 @@
 ---
-- name: Get VM Storage and Datastore Information
+- name: Get VM Storage and Datastore Free Space
   hosts: all
   gather_facts: no
   connection: local
@@ -12,9 +12,9 @@
 
   tasks:
     # -------------------------------------------------------
-    # 1. Get VM High-Level Info (Includes Storage Summary)
+    # 1. Get VM Storage Usage
     # -------------------------------------------------------
-    - name: Get VM facts (including storage summary and datastore names)
+    - name: Get VM facts (storage summary)
       community.vmware.vmware_guest_info:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
@@ -22,52 +22,46 @@
         validate_certs: no
         datacenter: "{{ datacenter_name }}"
         name: "{{ inventory_hostname }}"
-        schema: "vsphere" # Ensures we get detailed property structures
+        schema: vsphere
         properties:
           - summary.storage
-          - datastore
       delegate_to: localhost
       register: vm_facts
 
     # -------------------------------------------------------
-    # 2. Get Datastore Specifics (Capacity/Free Space)
+    # 2. Get ALL Datastores in Datacenter
     # -------------------------------------------------------
-    # A VM might be on multiple datastores, so we loop through the list found in step 1
-    - name: Get info for the Datastore(s) backing this VM
+    - name: Get all datastore information
       community.vmware.vmware_datastore_info:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
         validate_certs: no
         datacenter: "{{ datacenter_name }}"
-        name: "{{ item.name }}"
       delegate_to: localhost
-      loop: "{{ vm_facts.instance.datastore }}"
       register: datastore_facts
-      when: vm_facts.instance.datastore is defined
 
     # -------------------------------------------------------
-    # 3. Calculate and Display Results
+    # 3. Display VM Storage
     # -------------------------------------------------------
-    - name: Display Storage Metrics
+    - name: Display VM Storage Usage
       ansible.builtin.debug:
         msg:
           - "---------------------------------------------"
           - "VM Name: {{ inventory_hostname }}"
+          - "VM Storage Used (GB): {{ (vm_facts.instance.summary.storage.committed | float / 1024 / 1024 / 1024) | round(2) }}"
           - "---------------------------------------------"
-          # summary.storage.committed is the total space the VM is taking up on disk
-          - "VM Total Storage Used (Bytes): {{ vm_facts.instance.summary.storage.committed }}"
-          - "VM Total Storage Used (GB): {{ (vm_facts.instance.summary.storage.committed | float / 1024 / 1024 / 1024) | round(2) }} GB"
-          - "---------------------------------------------"
-          - "Datastore Details:"
 
-    - name: Print Details per Datastore
+    # -------------------------------------------------------
+    # 4. Display ALL Datastore Free Space
+    # -------------------------------------------------------
+    - name: Display All Datastore Free Space
       ansible.builtin.debug:
         msg:
-          - "Datastore Name: {{ item.datastores[0].name }}"
-          - "Datastore Capacity (GB): {{ (item.datastores[0].capacity | float / 1024 / 1024 / 1024) | round(2) }}"
-          - "Datastore Free Space (GB): {{ (item.datastores[0].freeSpace | float / 1024 / 1024 / 1024) | round(2) }}"
-      loop: "{{ datastore_facts.results }}"
-      when: item.datastores is defined and (item.datastores|length > 0)
+          - "Datastore Name       : {{ item.name }}"
+          - "Total Capacity (GB)  : {{ (item.capacity | float / 1024 / 1024 / 1024) | round(2) }}"
+          - "Free Space (GB)      : {{ (item.freeSpace | float / 1024 / 1024 / 1024) | round(2) }}"
+          - "---------------------------------------------"
+      loop: "{{ datastore_facts.datastores }}"
       loop_control:
-        label: "{{ item.datastores[0].name }}"
+        label: "{{ item.name }}"
