@@ -1,5 +1,5 @@
 ---
-- name: Get VM Storage and Datastore Free Space
+- name: Get VM Storage and Attached Datastore Free Space
   hosts: all
   gather_facts: no
   connection: local
@@ -12,9 +12,9 @@
 
   tasks:
     # -------------------------------------------------------
-    # 1. Get VM Storage Usage
+    # 1. Get VM Facts
     # -------------------------------------------------------
-    - name: Get VM facts (storage summary)
+    - name: Get VM facts
       community.vmware.vmware_guest_info:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
@@ -25,11 +25,22 @@
         schema: vsphere
         properties:
           - summary.storage
+          - datastore
       delegate_to: localhost
       register: vm_facts
 
     # -------------------------------------------------------
-    # 2. Get ALL Datastores in Datacenter
+    # 2. Extract Datastore IDs used by VM
+    # -------------------------------------------------------
+    - name: Extract VM datastore IDs
+      set_fact:
+        vm_datastore_ids: >-
+          {{ vm_facts.instance.datastore
+             | map('regex_replace', '^vim.Datastore:', '')
+             | list }}
+
+    # -------------------------------------------------------
+    # 3. Get ALL Datastore Info
     # -------------------------------------------------------
     - name: Get all datastore information
       community.vmware.vmware_datastore_info:
@@ -42,26 +53,25 @@
       register: datastore_facts
 
     # -------------------------------------------------------
-    # 3. Display VM Storage
+    # 4. Show VM Storage
     # -------------------------------------------------------
-    - name: Display VM Storage Usage
+    - name: Display VM Storage
       ansible.builtin.debug:
         msg:
-          - "---------------------------------------------"
           - "VM Name: {{ inventory_hostname }}"
           - "VM Storage Used (GB): {{ (vm_facts.instance.summary.storage.committed | float / 1024 / 1024 / 1024) | round(2) }}"
-          - "---------------------------------------------"
 
     # -------------------------------------------------------
-    # 4. Display ALL Datastore Free Space
+    # 5. Show ONLY Attached Datastore Free Space
     # -------------------------------------------------------
-    - name: Display All Datastore Free Space
+    - name: Display attached datastore free space
       ansible.builtin.debug:
         msg:
-          - "Datastore Name       : {{ item.name }}"
-          - "Total Capacity (GB)  : {{ (item.capacity | float / 1024 / 1024 / 1024) | round(2) }}"
-          - "Free Space (GB)      : {{ (item.freeSpace | float / 1024 / 1024 / 1024) | round(2) }}"
-          - "---------------------------------------------"
+          - "Datastore Name      : {{ item.name }}"
+          - "Capacity (GB)       : {{ (item.capacity | float / 1024 / 1024 / 1024) | round(2) }}"
+          - "Free Space (GB)     : {{ (item.freeSpace | float / 1024 / 1024 / 1024) | round(2) }}"
+          - "----------------------------------------"
       loop: "{{ datastore_facts.datastores }}"
+      when: item._vimid in vm_datastore_ids
       loop_control:
         label: "{{ item.name }}"
