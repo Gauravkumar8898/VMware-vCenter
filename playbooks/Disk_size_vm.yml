@@ -12,7 +12,7 @@
 
   tasks:
     # -------------------------------------------------------
-    # 1. Get VM Facts (Storage + Datastore References)
+    # 1. Get VM Facts (Storage + Datastore Names)
     # -------------------------------------------------------
     - name: Get VM facts
       community.vmware.vmware_guest_info:
@@ -30,13 +30,13 @@
       register: vm_facts
 
     # -------------------------------------------------------
-    # 2. Extract Datastore IDs attached to VM
+    # 2. Extract Datastore NAMES attached to VM
     # -------------------------------------------------------
-    - name: Extract VM datastore IDs
+    - name: Extract VM datastore names
       ansible.builtin.set_fact:
-        vm_datastore_ids: >-
+        vm_datastore_names: >-
           {{ vm_facts.instance.datastore
-             | map('regex_replace', '^vim.Datastore:', '')
+             | map(attribute='name')
              | list }}
 
     # -------------------------------------------------------
@@ -59,8 +59,8 @@
       ansible.builtin.debug:
         msg:
           - "---------------------------------------------"
-          - "VM Name               : {{ inventory_hostname }}"
-          - "VM Storage Used (GB)  : {{ (vm_facts.instance.summary.storage.committed | float / 1024 / 1024 / 1024) | round(2) }}"
+          - "VM Name              : {{ inventory_hostname }}"
+          - "VM Storage Used (GB) : {{ (vm_facts.instance.summary.storage.committed | float / 1024 / 1024 / 1024) | round(2) }}"
           - "---------------------------------------------"
 
     # -------------------------------------------------------
@@ -74,6 +74,6 @@
           - "Datastore Free Space : {{ (item.freeSpace | float / 1024 / 1024 / 1024) | round(2) }} GB"
           - "---------------------------------------------"
       loop: "{{ datastore_facts.datastores }}"
-      when: (item.datastore | default(item.id)) in vm_datastore_ids
+      when: item.name in vm_datastore_names
       loop_control:
         label: "{{ item.name }}"
