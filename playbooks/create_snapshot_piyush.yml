@@ -84,6 +84,8 @@
 
         name: "{{ inventory_hostname }}"
 
+        folder: "{{ vm_folder }}"
+
       delegate_to: localhost
 
       register: snapshot_info
